@@ -1,151 +1,101 @@
 import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
+import time
+from openai import OpenAI
+from deepgram import Deepgram
+import tempfile
+from streamlit.components.v1 import html
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+OPENAI_API_KEY = "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"
+DG_API_KEY = "e54398b73948a8b0de610e6e4b04d525dce16302"
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+dg_client = Deepgram(DG_API_KEY)
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+st.title("AI Interview Practice")
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+job_title = st.text_input("Enter the job position that you are interviewing for:")
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+if st.button("Generate Interview Question") and job_title.strip() != "":
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": f"Generate one interview question for {job_title}"}]
     )
+    st.session_state["question"] = response.choices[0].message.content
+    st.session_state["prep_done"] = False
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+if "question" in st.session_state:
+    st.subheader("Question:")
+    st.write(st.session_state["question"])
 
-    return gdp_df
+    if not st.session_state.get("prep_done", False):
+        with st.empty():
+            for sec in range(30, 0, -1):
+                st.write(f"⏳ Prepare your answer: {sec} seconds left")
+                time.sleep(1)
+            st.session_state["prep_done"] = True
+        st.write("You can now record your answer or type it.")
 
-gdp_df = get_gdp_data()
+if st.session_state.get("prep_done", False):
+    input_method = st.radio("Choose your answer input method:", ("Type Answer", "Record Audio"))
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+    transcription = ""
+    
+    if input_method == "Type Answer":
+        transcription = st.text_area("Type your answer here:")
+    
+    elif input_method == "Record Audio":
+        html_code = """
+        <script>
+        let recorder;
+        let audioChunks = [];
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+        async function startRecording() {
+            audioChunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            recorder = new MediaRecorder(stream);
+            recorder.ondataavailable = e => audioChunks.push(e.data);
+            recorder.start();
+            document.getElementById("status").innerText = "Recording...";
+        }
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+        async function stopRecording() {
+            recorder.stop();
+            recorder.onstop = async () => {
+                document.getElementById("status").innerText = "Saving file...";
+                const blob = new Blob(audioChunks, { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'answer.wav';
+                a.click();
+                document.getElementById("status").innerText = "Recording saved. Please upload below.";
+            }
+        }
+        </script>
+        <button onclick="startRecording()">🎙️ Start Recording</button>
+        <button onclick="stopRecording()">⏹️ Stop Recording</button>
+        <p id="status">Press start to record</p>
+        """
+        html(html_code, height=150)
 
-# Add some spacing
-''
-''
+        uploaded_audio = st.file_uploader("Upload your recorded answer (WAV format)", type=["wav"])
+        if uploaded_audio is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
+                tmpfile.write(uploaded_audio.read())
+                audio_path = tmpfile.name
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
+            with open(audio_path, "rb") as f:
+                source = {"buffer": f, "mimetype": "audio/wav"}
+                dg_response = dg_client.transcription.sync_prerecorded(source, {"punctuate": True})
+                transcription = dg_response["results"]["channels"][0]["alternatives"][0]["transcript"]
+            st.write("**Your Answer (Transcribed):**")
+            st.write(transcription)
+    
+    if transcription and st.button("Get Feedback"):
+        feedback_prompt = f"You are an expert interview coach. Give constructive feedback on this answer:\n{transcription}"
+        feedback = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": feedback_prompt}]
         )
+        st.subheader("Feedback:")
+        st.write(feedback.choices[0].message.content)
