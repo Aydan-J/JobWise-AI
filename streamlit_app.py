@@ -5,7 +5,7 @@ from deepgram import Deepgram
 import tempfile
 from streamlit.components.v1 import html
 
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "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"
 DG_API_KEY = "e54398b73948a8b0de610e6e4b04d525dce16302"
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
