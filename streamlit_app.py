@@ -5,8 +5,8 @@ from deepgram import Deepgram
 import tempfile
 from streamlit.components.v1 import html
 
-OPENAI_API_KEY = "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"
-DG_API_KEY = "e54398b73948a8b0de610e6e4b04d525dce16302"
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+DG_API_KEY = st.secrets["DG_API_KEY"]
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 dg_client = Deepgram(DG_API_KEY)
